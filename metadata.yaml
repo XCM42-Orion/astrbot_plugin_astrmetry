@@ -1,5 +1,5 @@
 name: "astrbot_plugin_astrmetry"
-desc: "接入Astrometry.net实现星空解析。"
+desc: "接入Astrometry.net进行星空图片解析。"
 version: "v1.0"
 author: "M42"
-repo: ""
+repo: "https://github.com/XCM42-Orion/astrbot_plugin_astrmetry"
