@@ -47,12 +47,14 @@ async def submit_file(file_path, file_name,apisession,session, **params):
         
         # 发送 POST 请求
             async with session.post('http://nova.astrometry.net/api/upload', data=form, headers=headers) as response:
-                response_text = await response.text()
+                try:
+                    data = await response.text()
         
         # 从返回的文本中解析出 subid
-            subid = response_text.split('id": ')[-1].split(',')[0]
-        
-            return subid
+                    subid = str(json.loads(data)["subid"])
+                    return subid
+                except(json.JSONDecodeError,KeyError)as e:
+                     logger.error(f"解析subid失败：{e}")
     
         except Exception as e:
             print(f"上传文件时出错: {e}")
@@ -70,7 +72,8 @@ async def check_submission(subid,session):
                         break
         if count > 99:
             logger.error('Astrometry.net 查询提交结果超时...')
-        jobid = response_text.split('jobs": [')[-1].split(']')[0]
+        jobs = json.loads(response_text)["jobs"]
+        jobid = str(jobs[0])
         logger.info('提交成功！返回的JOBID:'+jobid)
         return jobid
 
@@ -100,70 +103,69 @@ class MyPlugin(Star):
     @filter.command("解析")
     async def analyse(self, event: AstrMessageEvent):
         '''发送星空图进行解析''' 
-        session = aiohttp.ClientSession()
-        user_name = event.get_sender_name()
-        logger.info(f"{user_name}执行了解析...")
-        messages = event.get_messages()
-        img_url = None
-        for seg in messages:
-            if isinstance(seg, Comp.Image):
-                img_url = seg.url
-                break
-            elif isinstance(seg, Comp.Reply):
-                if seg.chain:
-                    for reply_seg in seg.chain:
-                        if isinstance(reply_seg, Comp.Image):
-                            img_url = reply_seg.url
-                            break
-        sourseimg = requests.get(img_url)
-        with open('sourseimage.jpg', 'wb') as file:
-            file.write(sourseimg.content)
-        data = {"apikey": self.APIkey}
-        # 将 JSON 对象转换成 URL 编码的字符串
-        encoded_data = {'request-json': json.dumps(data)}
-        async with session.post('http://nova.astrometry.net/api/login', data=encoded_data) as response:
-            R = await response.text()  # 获取响应内容
-        pattern = r"(?<=(session\"\:\s\"))([0-9]|[a-z])+([0-9]|[a-z])"
-        apisession = re.search(pattern,R).group()  #从返回值当中提取session
-        imgpath = os.path.abspath('sourseimage.jpg')  #输入要上传的图像路径
-        imgname = "sourseimage.jpg"
-        subid = await submit_file(file_path = imgpath, file_name = imgname,apisession = apisession,session=session)   #提交文件
-        yield event.plain_result('提交成功！提交的SUBID:'+subid)
-        jobid = await check_submission(subid=subid,session=session)  #检查提交情况
-        yield event.plain_result('提交成功！提交的JOBID:'+jobid)
-        await check_job_completion(jobid=jobid,session=session)  #检查完成情况
-        urlinfo = f"http://nova.astrometry.net/api/jobs/{jobid}/info/"
-        urlanno = f"http://nova.astrometry.net/annotated_display/{jobid}.jpg"
-
-        for trytimes1 in range(1, 100):  # 尝试获取解析数据
-            async with session.get(urlinfo) as responseinfo:
-                if responseinfo.status == 200:  # 正确的状态码检查
-                # 获取响应体并输出
-                    response_text = await responseinfo.text()
-                    logger.info(f"成功获取解析数据：{response_text}")
+        async with aiohttp.ClientSession() as session:
+            user_name = event.get_sender_name()
+            logger.info(f"{user_name}执行了解析...")
+            messages = event.get_messages()
+            img_url = None
+            for seg in messages:
+                if isinstance(seg, Comp.Image):
+                    img_url = seg.url
                     break
-                await asyncio.sleep(0.5)  # 等待一段时间再重试
-                if trytimes1 == 99:
-                # 超过 99 次还没成功则返回超时提示
-                    yield event.plain_result("获取解析数据超时...")
-        
-        objects = re.search(r"(?<=(\"objects_in_field\":))\s*\[(.*?)\]",response_text).group()
-        ra = re.search(r"(?<=(\"ra\":))\s*([\d\.-]+)",response_text).group()
-        dec = re.search(r"(?<=(\"dec\":))\s*([\d\.-]+)",response_text).group()
-        rad = re.search(r"(?<=(\"radius\":))\s*([\d\.-]+)",response_text).group()
-        psc = re.search(r"(?<=(\"pixscale\":))\s*([\d\.-]+)",response_text).group()
+                elif isinstance(seg, Comp.Reply):
+                    if seg.chain:
+                        for reply_seg in seg.chain:
+                            if isinstance(reply_seg, Comp.Image):
+                                img_url = reply_seg.url
+                                break
+            sourseimg = requests.get(img_url)
+            with open('sourseimage.jpg', 'wb') as file:
+                file.write(sourseimg.content)
+            data = {"apikey": self.APIkey}
+            # 将 JSON 对象转换成 URL 编码的字符串
+            encoded_data = {'request-json': json.dumps(data)}
+            async with session.post('http://nova.astrometry.net/api/login', data=encoded_data) as response:
+                R = await response.text()  # 获取响应内容
+            apisession = json.loads(R)["session"]  #从返回值当中提取session
+            imgpath = os.path.abspath('sourseimage.jpg')  #输入要上传的图像路径
+            imgname = "sourseimage.jpg"
+            subid = await submit_file(file_path = imgpath, file_name = imgname,apisession = apisession,session=session)   #提交文件
+            yield event.plain_result('提交成功！提交的SUBID:'+subid)
+            jobid = await check_submission(subid=subid,session=session)  #检查提交情况
+            yield event.plain_result('提交成功！提交的JOBID:'+jobid)
+            await check_job_completion(jobid=jobid,session=session)  #检查完成情况
+            urlinfo = f"http://nova.astrometry.net/api/jobs/{jobid}/info/"
+            urlanno = f"http://nova.astrometry.net/annotated_display/{jobid}.jpg"
 
-        for trytimes2 in range(1,100) :   #尝试下载图片文件
-                async with session.get(urlanno) as responsefile:
-                    if responsefile.status == 200:
-                        chain = [
-                            Comp.At(qq=event.get_sender_id()), # At 消息发送者
-                            Comp.Plain(" 解析成功！\nsubid:"+subid+",jobid:"+jobid+"\n"),
-                            Comp.Plain("解析结果：\n画面中目标："+objects+"\n中心赤经："+ra+"\n中心赤纬："+dec+"\n范围："+rad+"°"+"\n像素尺寸："+psc+"arcsec/pixel\n"+"标注图像链接：" +urlanno)
-                        ]
-                        yield event.chain_result(chain)
+            for trytimes1 in range(1, 100):  # 尝试获取解析数据
+                async with session.get(urlinfo) as responseinfo:
+                    if responseinfo.status == 200:  # 正确的状态码检查
+                # 获取响应体并输出
+                        response_text = await responseinfo.text()
+                        logger.info(f"成功获取解析数据：{response_text}")
                         break
-                    await asyncio.sleep(0.5)
-                    if trytimes2 == 99:
-                        yield event.plain_result("标注图像生成失败...")
+                    await asyncio.sleep(0.5)  # 等待一段时间再重试
+                    if trytimes1 == 99:
+                # 超过 99 次还没成功则返回超时提示
+                        yield event.plain_result("获取解析数据超时...")
+            rjs = json.loads(response_text)
+            objects = str(rjs["objects_in_field"])
+            ra = str(rjs["calibration"]["ra"])
+            dec = str(rjs["calibration"]["dec"])
+            rad = str(rjs["calibration"]["radius"])
+            psc = str(rjs["calibration"]["pixscale"])
+
+            for trytimes2 in range(1,100) :   #尝试下载图片文件
+                    async with session.get(urlanno) as responsefile:
+                        if responsefile.status == 200:
+                            chain = [
+                                Comp.At(qq=event.get_sender_id()), # At 消息发送者
+                                Comp.Plain(" 解析成功！\nsubid:"+subid+",jobid:"+jobid+"\n"),
+                                Comp.Plain("解析结果：\n画面中目标："+objects+"\n中心赤经："+ra+"\n中心赤纬："+dec+"\n范围："+rad+"°"+"\n像素尺寸："+psc+"arcsec/pixel\n"+"标注图像链接：" +urlanno)
+                            ]
+                            yield event.chain_result(chain)
+                            break
+                        await asyncio.sleep(0.5)
+                        if trytimes2 == 99:
+                            yield event.plain_result("标注图像生成失败...")
         await session.close() 
