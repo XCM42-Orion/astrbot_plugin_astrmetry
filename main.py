@@ -62,7 +62,7 @@ def check_submission(subid):
         if count > 99:
             logger.info('Astrometry.net 查询提交结果超时...')
         jobid = response.text.split('jobs": [')[-1].split(']')[0]
-        logger.info('提交成功！返回的JOBID:', jobid)
+        logger.info('提交成功！返回的JOBID:'+jobid)
         return jobid
 
 def check_job_completion(jobid):
