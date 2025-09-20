@@ -144,7 +144,7 @@ class MyPlugin(Star):
                 print("图像链接：",urlanno)
                 chain = [
                     Comp.At(qq=event.get_sender_id()), # At 消息发送者
-                    Comp.Plain(" 解析成功！subid:"+subid+",jobid:"+jobid),
+                    Comp.Plain(" 解析成功！\nsubid:"+subid+",jobid:"+jobid+"\n"),
                     Comp.Plain("解析结果：\n画面中目标："+objects+"\n中心赤经："+ra+"\n中心赤纬："+dec+"\n范围："+rad+"°"+"\n像素尺寸："+psc+"arcsec/pixel\n"),
                     Comp.Plain("标注图像链接：" +urlanno)
                 ]
