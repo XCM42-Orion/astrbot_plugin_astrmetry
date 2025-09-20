@@ -79,7 +79,7 @@ def check_job_completion(jobid):
         logger.info("解析完成！")
 
 
-@register("astrbot_plugin_astrmetry", "M42", "接入Astrometry.net进行星空图解析", "1.0", "https://github.com/XCM42-Orion/astrbot_plugin_astrmetry")
+@register("astrbot_plugin_astrmetry", "M42", "接入Astrometry.net进行星空图解析", "1.1", "https://github.com/XCM42-Orion/astrbot_plugin_astrmetry")
 class MyPlugin(Star):
     def __init__(self, context: Context,config: AstrBotConfig):
         super().__init__(context)
@@ -147,6 +147,7 @@ class MyPlugin(Star):
             if trytimes2 == 99:
                 yield event.plain_result("标注图像生成失败...")
             time.sleep(1)
+
 
 
 
