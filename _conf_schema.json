@@ -1,0 +1,7 @@
+{
+    "APIkey": {
+    "description": "API Key",
+    "type": "string",
+    "hint":"Astrometry.net的API Key，可以去官网获取"
+    }
+}

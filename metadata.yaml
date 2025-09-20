@@ -1,0 +1,5 @@
+name: "astrbot_plugin_astrmetry"
+desc: "接入Astrometry.net实现星空解析。"
+version: "v1.0"
+author: "M42"
+repo: ""
