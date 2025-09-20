@@ -1,4 +1,3 @@
-from __future__ import print_function
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger # 使用 astrbot 提供的 logger 接口
@@ -61,9 +60,9 @@ def check_submission(subid):
             else:
                 break
         if count > 99:
-            print('Astrometry.net 查询提交结果超时...')
+            logger.info('Astrometry.net 查询提交结果超时...')
         jobid = response.text.split('jobs": [')[-1].split(']')[0]
-        print('提交成功！返回的JOBID:', jobid)
+        logger.info('提交成功！返回的JOBID:', jobid)
         return jobid
 
 def check_job_completion(jobid):
@@ -76,8 +75,8 @@ def check_job_completion(jobid):
             else:
                 break
         if count > 99:
-            print('Astrometry.net 查询解析结果超时...')
-        print("解析完成！")
+            logger.info('Astrometry.net 查询解析结果超时...')
+        logger.info("解析完成！")
 
 
 @register("astrbot_plugin_astrmetry", "M42", "接入Astrometry.net进行星空图解析", "1.0", "https://github.com/XCM42-Orion/astrbot_plugin_astrmetry")
@@ -93,7 +92,7 @@ class MyPlugin(Star):
         '''发送星空图进行解析''' 
         user_name = event.get_sender_name()
         message_str = event.message_str # 获取消息的纯文本内容
-        logger.info("{user_name}执行了解析...")
+        logger.info(f"{user_name}执行了解析...")
         messages = event.get_messages()
         img_url = None
         for seg in messages:
@@ -112,7 +111,6 @@ class MyPlugin(Star):
         R = requests.post('http://nova.astrometry.net/api/login', data={'request-json': json.dumps({"apikey": self.APIkey})})    #获取session
         pattern = r"(?<=(session\"\:\s\"))([0-9]|[a-z])+([0-9]|[a-z])"
         apisession = re.search(pattern,R.text).group()  #从返回值当中提取session
-        print(apisession)   #输出session（测试用）
         imgpath = os.path.abspath('sourseimage.jpg')  #输入要上传的图像路径
         imgname = "sourseimage.jpg"
         subid = submit_file(file_path = imgpath, file_name = imgname,apisession = apisession)   #提交文件
@@ -126,8 +124,7 @@ class MyPlugin(Star):
         for trytimes1 in range(1,100) :   #尝试得到解析数据
             responseinfo = requests.get(urlinfo)
             if responseinfo.status_code == 200:
-                print("成功获取解析数据：")
-                print(responseinfo.text)
+                logger.info("成功获取解析数据："+responseinfo.text)
                 break
             if trytimes1 == 99:
                 yield event.plain_result("获取解析数据超时...")
@@ -140,8 +137,6 @@ class MyPlugin(Star):
         for trytimes2 in range(1,100) :   #尝试下载图片文件
             responsefile = requests.get(urlanno)
             if responsefile.status_code == 200:
-                print("标注图像已成功生成！")
-                print("图像链接：",urlanno)
                 chain = [
                     Comp.At(qq=event.get_sender_id()), # At 消息发送者
                     Comp.Plain(" 解析成功！\nsubid:"+subid+",jobid:"+jobid+"\n"),
@@ -152,5 +147,6 @@ class MyPlugin(Star):
             if trytimes2 == 99:
                 yield event.plain_result("标注图像生成失败...")
             time.sleep(1)
+
 
 
