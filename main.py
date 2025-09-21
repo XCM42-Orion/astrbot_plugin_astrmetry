@@ -3,16 +3,9 @@ from astrbot.api.star import Context, Star, register
 from astrbot.api import logger # 使用 astrbot 提供的 logger 接口
 import astrbot.api.message_components as Comp
 from astrbot.api import AstrBotConfig
+from tempfile import TemporaryDirectory
 import os
-import sys
-import time
-import base64
-import shutil
-import http.cookiejar
-import requests
 import json
-import re
-from PIL import Image
 import aiohttp
 import asyncio
 import aiofiles
@@ -65,7 +58,8 @@ async def check_submission(subid,session):
         while count < 100:
                 async with session.get(f'http://nova.astrometry.net/api/submissions/{subid}') as response:
                     response_text = await response.text()
-                    if not any(char.isdigit() for char in response_text.split('jobs": ')[-1].split(',')[0]):
+                    data = json.loads(response_text)
+                    if  data.get('jobs',[]) == [None] or not data.get('jobs', []): #***为什么刚返回的时候是空数组后来变成带一个null的数组。
                         await asyncio.sleep(0.5)
                         count += 1
                     else:
@@ -74,7 +68,7 @@ async def check_submission(subid,session):
             logger.error('Astrometry.net 查询提交结果超时...')
         jobs = json.loads(response_text)["jobs"]
         jobid = str(jobs[0])
-        logger.info('提交成功！返回的JOBID:'+jobid)
+        logger.info('解析成功！返回的JOBID:'+jobid)
         return jobid
 
 async def check_job_completion(jobid,session):
@@ -82,7 +76,7 @@ async def check_job_completion(jobid,session):
         while count < 100:
                 async with session.get(f'http://nova.astrometry.net/api/jobs/{jobid}') as response:
                     response_text = await response.text()
-                    if 'success' not in response_text:
+                    if json.loads(response_text)["status"] != "success":
                         await asyncio.sleep(0.5)
                         count += 1
                     else:
@@ -98,7 +92,7 @@ class MyPlugin(Star):
         super().__init__(context)
         self.config = config
         self.APIkey: str = config.get("APIkey", "")
-        print(self.config)
+        logger.info(self.config)
 
     @filter.command("解析")
     async def analyse(self, event: AstrMessageEvent):
@@ -118,22 +112,23 @@ class MyPlugin(Star):
                             if isinstance(reply_seg, Comp.Image):
                                 img_url = reply_seg.url
                                 break
-            async with session.get(img_url) as sourseimg:
-                content = await sourseimg.read()  # 获取字节流
-                async with aiofiles.open('sourseimage.jpg', 'wb') as file:
-                    await file.write(content)
-            data = {"apikey": self.APIkey}
-            # 将 JSON 对象转换成 URL 编码的字符串
-            encoded_data = {'request-json': json.dumps(data)}
-            async with session.post('http://nova.astrometry.net/api/login', data=encoded_data) as response:
-                R = await response.text()  # 获取响应内容
-            apisession = json.loads(R)["session"]  #从返回值当中提取session
-            imgpath = os.path.abspath('sourseimage.jpg')  #输入要上传的图像路径
-            imgname = "sourseimage.jpg"
-            subid = await submit_file(file_path = imgpath, file_name = imgname,apisession = apisession,session=session)   #提交文件
-            yield event.plain_result('提交成功！提交的SUBID:'+subid)
+            with TemporaryDirectory() as temporarydir:
+                async with session.get(img_url) as sourseimg:
+                    content = await sourseimg.read()  # 获取字节流
+                    async with aiofiles.open(f'{temporarydir}\sourseimage.jpg', 'wb') as file:
+                        await file.write(content)
+                data = {"apikey": self.APIkey}
+                # 将 JSON 对象转换成 URL 编码的字符串
+                encoded_data = {'request-json': json.dumps(data)}
+                async with session.post('http://nova.astrometry.net/api/login', data=encoded_data) as response:
+                    R = await response.text()  # 获取响应内容
+                apisession = json.loads(R)["session"]  #从返回值当中提取session
+                imgpath = os.path.abspath(f'{temporarydir}\sourseimage.jpg')  #输入要上传的图像路径
+                imgname = "sourseimage.jpg"
+                subid = await submit_file(file_path = imgpath, file_name = imgname,apisession = apisession,session=session)   #提交文件
+                yield event.plain_result('提交成功！提交的SUBID:'+subid)
             jobid = await check_submission(subid=subid,session=session) 
-            yield event.plain_result('提交成功！提交的JOBID:'+jobid)
+            yield event.plain_result('解析成功！提交的JOBID:'+jobid)
             await check_job_completion(jobid=jobid,session=session)  #检查完成情况
             urlinfo = f"http://nova.astrometry.net/api/jobs/{jobid}/info/"
             urlanno = f"http://nova.astrometry.net/annotated_display/{jobid}.jpg"
@@ -149,7 +144,9 @@ class MyPlugin(Star):
                     if trytimes1 == 99:
                 # 超过 99 次还没成功则返回超时提示
                         yield event.plain_result("获取解析数据超时...")
+                        
             rjs = json.loads(response_text)
+
             objects = str(rjs["objects_in_field"])
             ra = str(rjs["calibration"]["ra"])
             dec = str(rjs["calibration"]["dec"])
@@ -169,4 +166,3 @@ class MyPlugin(Star):
                         await asyncio.sleep(0.5)
                         if trytimes2 == 99:
                             yield event.plain_result("标注图像生成失败...")
-        await session.close() 
