@@ -118,9 +118,10 @@ class MyPlugin(Star):
                             if isinstance(reply_seg, Comp.Image):
                                 img_url = reply_seg.url
                                 break
-            sourseimg = requests.get(img_url)
-            with open('sourseimage.jpg', 'wb') as file:
-                file.write(sourseimg.content)
+            async with session.get(img_url) as sourseimg:
+                content = await sourseimg.read()  # 获取字节流
+                async with aiofiles.open('sourseimage.jpg', 'wb') as file:
+                    await file.write(content)
             data = {"apikey": self.APIkey}
             # 将 JSON 对象转换成 URL 编码的字符串
             encoded_data = {'request-json': json.dumps(data)}
@@ -131,7 +132,7 @@ class MyPlugin(Star):
             imgname = "sourseimage.jpg"
             subid = await submit_file(file_path = imgpath, file_name = imgname,apisession = apisession,session=session)   #提交文件
             yield event.plain_result('提交成功！提交的SUBID:'+subid)
-            jobid = await check_submission(subid=subid,session=session)  #检查提交情况
+            jobid = await check_submission(subid=subid,session=session) 
             yield event.plain_result('提交成功！提交的JOBID:'+jobid)
             await check_job_completion(jobid=jobid,session=session)  #检查完成情况
             urlinfo = f"http://nova.astrometry.net/api/jobs/{jobid}/info/"
