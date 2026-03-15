@@ -166,7 +166,7 @@ class MyPlugin(Star):
                     # 获取响应体并输出
                             response_text = await responseinfo.text()
                             logger.info(f"成功获取解析数据：{response_text}")
-                            isImageReady = await download_astrometry_file(jobid, session,"annotated_display",temporarydir)
+                            isImageReady = await download_astrometry_file(jobid, session,temporarydir,"annotated_display")
                             break
                         await asyncio.sleep(1)  # 等待一段时间再重试
                         if trytimes1 == 99:
