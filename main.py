@@ -85,6 +85,30 @@ async def check_job_completion(jobid,session):
         if count > 99:
             logger.error('Astrometry.net 查询解析结果超时...')
 
+async def download_astrometry_file(job_id, session: aiohttp.ClientSession, save_path, file_type="annotated_display"):
+    url = f"http://nova.astrometry.net/{file_type}/{job_id}"
+    print(f"正在下载: {url}")
+    try:
+        async with session.get(url) as response:
+            if response.status == 200:
+                # 自动构造保存路径
+                save_path = save_path + f"/annotated.png"
+
+                # 使用异步方式写入文件 (推荐安装 aiofiles: pip install aiofiles)
+                # 这里先展示标准的异步流式处理
+                with open(save_path, 'wb') as f:
+                    async for chunk in response.content.iter_chunked(8192):
+                        f.write(chunk)
+                
+                logger.info(f"文件已保存至: {save_path}")
+                return True
+            else:
+                logger.info(f"下载失败，状态码: {response.status}，URL: {url}")
+                return False
+    except Exception as e:
+        logger.info(f"网络请求发生异常: {e}")
+        return False
+
 
 @register("astrbot_plugin_astrmetry", "M42", "接入Astrometry.net进行星空图解析", "1.0", "https://github.com/XCM42-Orion/astrbot_plugin_astrmetry")
 class MyPlugin(Star):
@@ -130,39 +154,40 @@ class MyPlugin(Star):
             jobid = await check_submission(subid=subid,session=session) 
             yield event.plain_result('解析成功！提交的JOBID:'+jobid)
             await check_job_completion(jobid=jobid,session=session)  #检查完成情况
+
             urlinfo = f"http://nova.astrometry.net/api/jobs/{jobid}/info/"
-            urlanno = f"http://nova.astrometry.net/annotated_display/{jobid}.jpg"
+            urlanno = f"http://nova.astrometry.net/annotated_display/{jobid}.png"
+            isImageReady = False
 
-            for trytimes1 in range(1, 100):  # 尝试获取解析数据
-                async with session.get(urlinfo) as responseinfo:
-                    if responseinfo.status == 200:  # 正确的状态码检查
-                # 获取响应体并输出
-                        response_text = await responseinfo.text()
-                        logger.info(f"成功获取解析数据：{response_text}")
-                        break
-                    await asyncio.sleep(0.5)  # 等待一段时间再重试
-                    if trytimes1 == 99:
-                # 超过 99 次还没成功则返回超时提示
-                        yield event.plain_result("获取解析数据超时...")
-                        
-            rjs = json.loads(response_text)
-
-            objects = str(rjs["objects_in_field"])
-            ra = str(rjs["calibration"]["ra"])
-            dec = str(rjs["calibration"]["dec"])
-            rad = str(rjs["calibration"]["radius"])
-            psc = str(rjs["calibration"]["pixscale"])
-
-            for trytimes2 in range(1,100) :   #尝试下载图片文件
-                    async with session.get(urlanno) as responsefile:
-                        if responsefile.status == 200:
-                            chain = [
-                                Comp.At(qq=event.get_sender_id()), # At 消息发送者
-                                Comp.Plain(" 解析成功！\nsubid:"+subid+",jobid:"+jobid+"\n"),
-                                Comp.Plain("解析结果：\n画面中目标："+objects+"\n中心赤经："+ra+"\n中心赤纬："+dec+"\n范围："+rad+"°"+"\n像素尺寸："+psc+"arcsec/pixel\n"+"标注图像链接：" +urlanno)
-                            ]
-                            yield event.chain_result(chain)
+            with TemporaryDirectory() as temporarydir:
+                for trytimes1 in range(1, 100):  # 尝试获取解析数据
+                    async with session.get(urlinfo) as responseinfo:
+                        if responseinfo.status == 200:  # 正确的状态码检查
+                    # 获取响应体并输出
+                            response_text = await responseinfo.text()
+                            logger.info(f"成功获取解析数据：{response_text}")
+                            isImageReady = await download_astrometry_file(jobid, session,"annotated_display",temporarydir)
                             break
-                        await asyncio.sleep(0.5)
-                        if trytimes2 == 99:
-                            yield event.plain_result("标注图像生成失败...")
+                        await asyncio.sleep(1)  # 等待一段时间再重试
+                        if trytimes1 == 99:
+                    # 超过 99 次还没成功则返回超时提示
+                            yield event.plain_result("获取解析数据超时...")
+                            
+                rjs = json.loads(response_text)
+
+                objects = str(rjs["objects_in_field"])
+                ra = str(rjs["calibration"]["ra"])
+                dec = str(rjs["calibration"]["dec"])
+                rad = str(rjs["calibration"]["radius"])
+                psc = str(rjs["calibration"]["pixscale"])
+
+                chain = [
+                    Comp.At(qq=event.get_sender_id()), # At 消息发送者
+                    Comp.Plain(" 解析成功！\nsubid:"+subid+",jobid:"+jobid+"\n"),
+                    Comp.Plain("解析结果：\n画面中目标："+objects+"\n中心赤经："+ra+"\n中心赤纬："+dec+"\n范围："+rad+"°"+"\n像素尺寸："+psc+"arcsec/pixel\n"+"标注图像链接：" +urlanno)
+                ]
+
+                if isImageReady:
+                    chain.append(Comp.Image.fromFileSystem(f"{temporarydir}/annotated.png"))
+
+                yield event.chain_result(chain)
